@@ -94,20 +94,26 @@ static const dynamic_link_descriptor MallocLinkTable[] = {
 
 
 #if TBB_USE_DEBUG
-#define DEBUG_SUFFIX "_debug"
+#define DEBUG_SUFFIX "d"
 #else
 #define DEBUG_SUFFIX
 #endif /* TBB_USE_DEBUG */
 
+#if __TBB_x86_64
+#define PLATFORM_SUFFIX "_x64"
+#else
+#define PLATFORM_SUFFIX
+#endif /* __TBB_x86_64 */
+
 // MALLOCLIB_NAME is the name of the TBB memory allocator library.
 #if _WIN32||_WIN64
-#define MALLOCLIB_NAME "tbbmalloc" DEBUG_SUFFIX ".dll"
+#define MALLOCLIB_NAME "tbb4malloc_bi" PLATFORM_SUFFIX DEBUG_SUFFIX ".dll"
 #elif __APPLE__
-#define MALLOCLIB_NAME "libtbbmalloc" DEBUG_SUFFIX ".dylib"
+#define MALLOCLIB_NAME "tbb4malloc_bi" PLATFORM_SUFFIX DEBUG_SUFFIX ".dylib"
 #elif __FreeBSD__ || __NetBSD__ || __sun || _AIX || __ANDROID__
-#define MALLOCLIB_NAME "libtbbmalloc" DEBUG_SUFFIX ".so"
-#elif __linux__  // Note that order of these #elif's is important!
-#define MALLOCLIB_NAME "libtbbmalloc" DEBUG_SUFFIX  __TBB_STRING(.so.TBB_COMPATIBLE_INTERFACE_VERSION)
+#define MALLOCLIB_NAME "tbb4malloc_bi" PLATFORM_SUFFIX DEBUG_SUFFIX ".so"
+#elif __linux__
+#define MALLOCLIB_NAME "tbb4malloc_bi" PLATFORM_SUFFIX DEBUG_SUFFIX  __TBB_STRING(.so.TBB_COMPATIBLE_INTERFACE_VERSION)
 #else
 #error Unknown OS
 #endif

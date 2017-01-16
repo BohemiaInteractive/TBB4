@@ -36,6 +36,7 @@ extern "C" {
     void * scalable_malloc(size_t size);
     void * scalable_calloc(size_t nobj, size_t size);
     void   scalable_free(void *ptr);
+    size_t scalable_footprint();
     void * scalable_realloc(void* ptr, size_t size);
     void * scalable_aligned_malloc(size_t size, size_t alignment);
     void * scalable_aligned_realloc(void* ptr, size_t size, size_t alignment);

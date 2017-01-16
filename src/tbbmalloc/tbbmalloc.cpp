@@ -31,24 +31,32 @@
 #include "tbb/machine/windows_api.h"
 #endif
 
+#include "tbb/scalable_allocator.h"
+
 namespace rml {
 namespace internal {
 
 #if TBB_USE_DEBUG
-#define DEBUG_SUFFIX "_debug"
+#define DEBUG_SUFFIX "d"
 #else
 #define DEBUG_SUFFIX
 #endif /* TBB_USE_DEBUG */
 
+#if __TBB_x86_64
+#define PLATFORM_SUFFIX "_x64"
+#else
+#define PLATFORM_SUFFIX
+#endif /* __TBB_x86_64 */
+
 // MALLOCLIB_NAME is the name of the TBB memory allocator library.
 #if _WIN32||_WIN64
-#define MALLOCLIB_NAME "tbbmalloc" DEBUG_SUFFIX ".dll"
+#define MALLOCLIB_NAME "tbb4malloc_bi" PLATFORM_SUFFIX DEBUG_SUFFIX ".dll"
 #elif __APPLE__
-#define MALLOCLIB_NAME "libtbbmalloc" DEBUG_SUFFIX ".dylib"
+#define MALLOCLIB_NAME "tbb4malloc_bi" PLATFORM_SUFFIX DEBUG_SUFFIX ".dylib"
 #elif __FreeBSD__ || __NetBSD__ || __sun || _AIX || __ANDROID__
-#define MALLOCLIB_NAME "libtbbmalloc" DEBUG_SUFFIX ".so"
+#define MALLOCLIB_NAME "tbb4malloc_bi" PLATFORM_SUFFIX DEBUG_SUFFIX ".so"
 #elif __linux__
-#define MALLOCLIB_NAME "libtbbmalloc" DEBUG_SUFFIX  __TBB_STRING(.so.TBB_COMPATIBLE_INTERFACE_VERSION)
+#define MALLOCLIB_NAME "tbb4malloc_bi" PLATFORM_SUFFIX DEBUG_SUFFIX  __TBB_STRING(.so.TBB_COMPATIBLE_INTERFACE_VERSION)
 #else
 #error Unknown OS
 #endif
@@ -107,6 +115,32 @@ static RegisterProcessShutdownNotification reg;
 #endif /* !__TBB_SOURCE_DIRECTLY_INCLUDED */
 
 } } // namespaces
+
+#if (_WIN32 || _WIN64) && __TBB_DYNAMIC_LOAD_ENABLED
+
+#define DLL_EXPORT __declspec(dllexport)
+
+extern "C" {
+  DLL_EXPORT size_t __stdcall MemTotalCommitted() {return scalable_footprint();}
+  DLL_EXPORT size_t __stdcall MemTotalReserved() {return scalable_footprint();}
+  DLL_EXPORT size_t __stdcall MemFlushCache(size_t size)
+  {
+    //return (scalable_allocation_command(TBBMALLOC_CLEAN_THREAD_BUFFERS, nullptr) == TBBMALLOC_OK) ? size : 0;
+    return size; // Caches are flushed automatically internally by TBB so just tell Arma we're done here
+  }
+  DLL_EXPORT void __stdcall  MemFlushCacheAll() { scalable_allocation_command(TBBMALLOC_CLEAN_ALL_BUFFERS, nullptr); }
+  DLL_EXPORT size_t __stdcall MemSize(void *mem) { return scalable_msize(mem); }
+  DLL_EXPORT void * __stdcall MemAlloc(size_t size) { return scalable_malloc(size); }
+  DLL_EXPORT void  __stdcall MemFree(void *mem) { scalable_free(mem); }
+
+  DLL_EXPORT size_t __stdcall MemSizeA(void *mem, size_t aligment) { return scalable_msize(mem); }
+  DLL_EXPORT void * __stdcall MemAllocA(size_t size, size_t aligment) { return scalable_aligned_malloc(size, aligment); }
+  DLL_EXPORT void  __stdcall MemFreeA(void *mem) { scalable_aligned_free(mem); }
+
+  DLL_EXPORT void  __stdcall EnableHugePages() { enable_huge_pages(); }
+}
+
+#endif //(_WIN32 || _WIN64) && __TBB_DYNAMIC_LOAD_ENABLED
 
 #if __TBB_ipf
 /* It was found that on IA-64 architecture inlining of __TBB_machine_lockbyte leads

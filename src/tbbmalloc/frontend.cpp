@@ -23,6 +23,7 @@
 #include <errno.h>
 #include <new>        /* for placement new */
 #include <string.h>   /* for memset */
+#include <cinttypes>
 
 #include "../tbb/tbb_version.h"
 #include "../tbb/itt_notify.h" // for __TBB_load_ittnotify()
@@ -1913,26 +1914,88 @@ void AllocControlledMode::initReadEnv(const char *envName, intptr_t defaultVal)
     }
 }
 
-void MemoryPool::initDefaultPool()
-{
-    long long unsigned hugePageSize = 0;
-#if __linux__
-    if (FILE *f = fopen("/proc/meminfo", "r")) {
-        const int READ_BUF_SIZE = 100;
-        char buf[READ_BUF_SIZE];
-        MALLOC_STATIC_ASSERT(sizeof(hugePageSize) >= 8,
-              "At least 64 bits required for keeping page size/numbers.");
+bool GEnableHugePages = false;
 
-        while (fgets(buf, READ_BUF_SIZE, f)) {
-            if (1 == sscanf(buf, "Hugepagesize: %llu kB", &hugePageSize)) {
-                hugePageSize *= 1024;
-                break;
-            }
-        }
-        fclose(f);
+extern "C" void enable_huge_pages()
+{
+  GEnableHugePages = true;
+}
+
+#if __linux__
+static size_t EnableHugePages()
+{
+  if (!GEnableHugePages)
+    return 0;
+
+  size_t hugePageSize = 0;
+
+  if (FILE *f = fopen("/proc/meminfo", "r"))
+  {
+    const int READ_BUF_SIZE = 100;
+    char buf[READ_BUF_SIZE];
+    MALLOC_STATIC_ASSERT(sizeof(hugePageSize) >= 8,
+      "At least 64 bits required for keeping page size/numbers.");
+
+    while (fgets(buf, READ_BUF_SIZE, f))
+    {
+      if (1 == sscanf(buf, "Hugepagesize: %" PRIuPTR " kB", &hugePageSize))
+      {
+        hugePageSize *= 1024;
+        break;
+      }
     }
+    fclose(f);
+  }
+
+  return hugePageSize;
+}
+#elif (_WIN32 || _WIN64)
+static size_t EnableHugePages(TCHAR* pszPrivilege)
+{  
+  if (!GEnableHugePages)
+    return 0;
+
+  HANDLE  hToken;
+  if (FALSE == OpenProcessToken(GetCurrentProcess(), TOKEN_ADJUST_PRIVILEGES | TOKEN_QUERY, &hToken))
+  {
+    TRACEF("[EnableHugePages trace] OpenProcessToken failed, huge pages won't be available.");
+    return 0;
+  }
+
+  TOKEN_PRIVILEGES tp;
+  if (FALSE == LookupPrivilegeValueA(NULL, pszPrivilege, &tp.Privileges[0].Luid))
+  {
+    CloseHandle(hToken);
+    TRACEF("[EnableHugePages trace] LookupPrivilegeValueA failed, huge pages won't be available.");
+    return 0;
+  }
+
+  tp.PrivilegeCount = 1;
+  tp.Privileges[0].Attributes = SE_PRIVILEGE_ENABLED;
+  if (FALSE == AdjustTokenPrivileges(hToken, FALSE, &tp, 0, (PTOKEN_PRIVILEGES)NULL, 0))
+  {
+    CloseHandle(hToken);
+    TRACEF("[EnableHugePages trace] AdjustTokenPrivileges failed, huge pages won't be available.");
+    return 0;
+  }
+
+  CloseHandle(hToken);
+
+  size_t hugePageSize = GetLargePageMinimum();
+  return hugePageSize;
+}
 #endif
-    hugePages.init(hugePageSize);
+
+void MemoryPool::initDefaultPool()
+{    
+#if __linux__
+  size_t hugePageSize = EnableHugePages();
+#elif (_WIN32 || _WIN64)
+  size_t hugePageSize = EnableHugePages("SeLockMemoryPrivilege");
+#else
+  size_t hugePageSize = 0;
+#endif
+  hugePages.init(hugePageSize);
 }
 
 #if USE_PTHREAD && (__TBB_SOURCE_DIRECTLY_INCLUDED || __TBB_USE_DLOPEN_REENTRANCY_WORKAROUND)
@@ -2635,6 +2698,13 @@ static size_t internalMsize(void* ptr)
     return 0;
 }
 
+extern size_t MappedMemory;
+
+static size_t internalFootprint()
+{
+  return MappedMemory;
+}
+
 } // namespace internal
 
 using namespace rml::internal;
@@ -2866,6 +2936,11 @@ extern "C" void * scalable_malloc(size_t size)
 
 extern "C" void scalable_free (void *object) {
     internalFree(object);
+}
+
+extern "C" size_t scalable_footprint()
+{
+  return internalFootprint();
 }
 
 #if MALLOC_ZONE_OVERLOAD_ENABLED
@@ -3168,7 +3243,6 @@ extern "C" int scalable_allocation_mode(int param, intptr_t value)
         defaultMemPool->extMemPool.backend.setRecommendedMaxSize((size_t)value);
         return TBBMALLOC_OK;
     } else if (param == USE_HUGE_PAGES) {
-#if __linux__
         switch (value) {
         case 0:
         case 1:
@@ -3177,9 +3251,7 @@ extern "C" int scalable_allocation_mode(int param, intptr_t value)
         default:
             return TBBMALLOC_INVALID_PARAM;
         }
-#else
         return TBBMALLOC_NO_EFFECT;
-#endif
 #if __TBB_SOURCE_DIRECTLY_INCLUDED
     } else if (param == TBBMALLOC_INTERNAL_SOURCE_INCLUDED) {
         switch (value) {

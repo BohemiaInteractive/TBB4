@@ -946,6 +946,8 @@ public:
     void initReadEnv(const char *envName, intptr_t defaultVal);
 };
 
+extern bool GEnableHugePages;
+
 // init() and printStatus() is called only under global initialization lock.
 // Race is possible between registerAllocation() and registerReleasing(),
 // harm is that up to single huge page releasing is missed (because failure
@@ -986,12 +988,12 @@ public:
 
         MallocMutex::scoped_lock lock(setModeLock);
         requestedMode.initReadEnv("TBB_MALLOC_USE_HUGE_PAGES", 0);
-        enabled = pageSize && requestedMode.get();
+        enabled = pageSize && (requestedMode.get() || GEnableHugePages);
     }
     void setMode(intptr_t newVal) {
         MallocMutex::scoped_lock lock(setModeLock);
         requestedMode.set(newVal);
-        enabled = pageSize && newVal;
+        enabled = pageSize && (newVal || GEnableHugePages);
     }
     void reset() {
         pageSize = 0;

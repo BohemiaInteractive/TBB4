@@ -104,6 +104,8 @@ typedef enum {
     @ingroup memory_allocation */
 int __TBB_EXPORTED_FUNC scalable_allocation_mode(int param, intptr_t value);
 
+int __TBB_EXPORTED_FUNC enable_huge_pages();
+
 typedef enum {
     /* Clean internal allocator buffers for all threads.
        Returns TBBMALLOC_NO_EFFECT if no buffers cleaned,
@@ -323,9 +325,17 @@ inline bool operator!=( const scalable_allocator<T>&, const scalable_allocator<U
 
     #if !__TBBMALLOC_NO_IMPLICIT_LINKAGE
         #ifdef _DEBUG
-            #pragma comment(lib, "tbbmalloc_debug.lib")
+          #if __TBB_x86_64
+            #pragma comment(lib, "tbb4malloc_bi_x64d.lib")
+          #else
+            #pragma comment(lib, "tbb4malloc_bid.lib")
+          #endif
         #else
-            #pragma comment(lib, "tbbmalloc.lib")
+          #if __TBB_x86_64
+            #pragma comment(lib, "tbb4malloc_bi_x64.lib")
+          #else
+            #pragma comment(lib, "tbb4malloc_bi.lib")
+          #endif
         #endif
     #endif
 
